@@ -3,7 +3,7 @@
 
 class PopupController {
   constructor() {
-    this.version = '1.22.1';
+    this.version = '1.22.6';
     this.settings = {};
     this.stats = {};
     this.updateInterval = null;
@@ -34,6 +34,7 @@ class PopupController {
         captchaSensitivity: 'medium',
         maxRetries: 5,
         notifyFormat: 'markdown',
+        debugMode: false,
         isRunning: false
       };
       
@@ -45,6 +46,7 @@ class PopupController {
       document.getElementById('captchaSensitivity').value = this.settings.captchaSensitivity || 'medium';
       document.getElementById('maxRetries').value = this.settings.maxRetries || 5;
       document.getElementById('notifyFormat').value = this.settings.notifyFormat || 'markdown';
+      document.getElementById('debugMode').checked = this.settings.debugMode || false;
       
     } catch (e) {
       this.addLog('error', '加载设置失败: ' + e.message);
@@ -123,6 +125,7 @@ class PopupController {
       captchaSensitivity: document.getElementById('captchaSensitivity').value,
       maxRetries: parseInt(document.getElementById('maxRetries').value) || 5,
       notifyFormat: document.getElementById('notifyFormat').value,
+      debugMode: document.getElementById('debugMode').checked,
       isRunning: this.settings.isRunning
     };
 

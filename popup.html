@@ -441,7 +441,7 @@
     <!-- 头部 -->
     <div class="header">
       <h1>SMZDM 爆料监控器</h1>
-      <span class="version">v1.22.1</span>
+      <span class="version">v1.22.6</span>
     </div>
     
     <!-- 状态卡片 -->
@@ -482,6 +482,18 @@
         <label>刷新间隔（秒）</label>
         <input type="number" id="refreshInterval" value="60" min="30" max="600">
         <div class="help-text">建议 60-120 秒，避免触发反爬</div>
+      </div>
+      
+      <!-- Debug 模式开关 -->
+      <div class="switch-container">
+        <div>
+          <span class="switch-label">🐛 调试模式</span>
+          <div class="help-text" style="margin-top: 2px">每次扫描都推送第一条爆料</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="debugMode">
+          <span class="slider"></span>
+        </label>
       </div>
       
       <div class="btn-group">

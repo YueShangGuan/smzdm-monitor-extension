@@ -3,7 +3,7 @@
 
 // ==================== 配置常量 ====================
 const CONFIG = {
-  VERSION: '1.22.3',
+  VERSION: '1.22.6',
   DEFAULT_INTERVAL: 60,
   MIN_INTERVAL: 30,
   MAX_INTERVAL: 600,
@@ -692,6 +692,7 @@ class SMZDMMonitor {
       captchaSensitivity: data.captchaSensitivity || 'medium',
       maxRetries: data.maxRetries || CONFIG.MAX_RETRIES,
       notifyFormat: data.notifyFormat || 'markdown',
+      debugMode: data.debugMode || false,
       isRunning: data.isRunning || false
     };
 
@@ -928,15 +929,34 @@ class SMZDMMonitor {
     this.logger.info('开始检查更新...');
     
     try {
-      // 检查页面状态，如果没有加载完成则等待
+      // 检查标签页是否存在及休眠状态
       try {
         const tab = await chrome.tabs.get(this.currentTabId);
-        if (tab.status !== 'complete') {
+        
+        // 检测是否被休眠（discarded）
+        if (tab.discarded) {
+          this.logger.warn('标签页已被休眠，正在重新加载...');
+          // 重新加载标签页
+          await chrome.tabs.reload(this.currentTabId);
+          await this.waitForTabLoad();
+          this.logger.info('标签页已从休眠中恢复');
+        } else if (tab.status !== 'complete') {
           this.logger.info('等待页面加载...');
           await this.waitForTabLoad();
         }
       } catch (e) {
         this.logger.warn('获取标签页状态失败:', e.message);
+        // 尝试恢复标签页
+        await this.recoverTab();
+        return;
+      }
+      
+      // 唤醒标签页（防止休眠）
+      try {
+        // 通过更新标签页来确保它保持活跃
+        await chrome.tabs.update(this.currentTabId, { active: false });
+      } catch (e) {
+        // 忽略错误，可能标签页已经在前台
       }
       
       // 额外等待动态内容
@@ -1208,6 +1228,10 @@ class SMZDMMonitor {
   async processContent(items) {
     if (!items || items.length === 0) return;
     
+    // 重新加载设置确保 debugMode 是最新的
+    await this.loadSettings();
+    this.logger.info(`调试模式状态: ${this.settings.debugMode ? '开启' : '关闭'}`);
+    
     const lastItems = await this.storage.get('lastItems', []);
     const lastIds = new Set(lastItems.map(item => item.id));
     const newItems = items.filter(item => !lastIds.has(item.id));
@@ -1221,6 +1245,10 @@ class SMZDMMonitor {
       
       // 发送通知
       await this.sendNotification(newItems);
+    } else if (this.settings.debugMode) {
+      // 调试模式：即使没有新爆料，也发送第一条
+      this.logger.info('[调试模式] 发送第一条爆料到企微');
+      await this.sendDebugNotification(items[0]);
     } else {
       this.logger.info('内容无变化');
     }
@@ -1239,6 +1267,43 @@ class SMZDMMonitor {
       this.logger.success('通知发送成功');
     } catch (e) {
       this.logger.error('通知发送失败:', e.message);
+    }
+  }
+
+  async sendDebugNotification(item) {
+    if (!this.settings.webhookUrl) return;
+    
+    const content = {
+      msgtype: 'markdown',
+      markdown: {
+        content: `## 🐛 调试模式推送\n\n` +
+                 `⏰ 检测时间: ${Utils.formatTime()}\n` +
+                 `> 此消息为调试模式自动推送\n\n` +
+                 `---\n\n` +
+                 `**${item.title}**\n` +
+                 `> 💰 价格: ${item.price}\n` +
+                 `> ⏰ 时间: ${item.time}\n` +
+                 `> 🔗 [查看详情](${item.link})\n\n` +
+                 `---\n` +
+                 `*SMZDM 爆料监控器 调试模式*`
+      }
+    };
+
+    try {
+      const response = await fetch(this.settings.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(content)
+      });
+      
+      const result = await response.json();
+      if (result.errcode === 0) {
+        this.logger.success('[调试] 通知发送成功');
+      } else {
+        this.logger.error('[调试] 通知发送失败:', result.errmsg);
+      }
+    } catch (e) {
+      this.logger.error('[调试] 通知发送异常:', e.message);
     }
   }
 
