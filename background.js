@@ -3,7 +3,7 @@
 
 // ==================== 配置常量 ====================
 const CONFIG = {
-  VERSION: '1.22.6',
+  VERSION: '1.22.8',
   DEFAULT_INTERVAL: 60,
   MIN_INTERVAL: 30,
   MAX_INTERVAL: 600,
@@ -921,43 +921,26 @@ class SMZDMMonitor {
   }
 
   async performCheck() {
-    if (!this.isRunning || this.isPaused || !this.currentTabId) {
-      this.logger.warn('检查跳过: 监控未运行或无标签页');
+    if (!this.isRunning || this.isPaused) {
+      this.logger.warn('检查跳过: 监控未运行或已暂停');
       return;
     }
 
     this.logger.info('开始检查更新...');
     
+    let checkTabId = null;
+    
     try {
-      // 检查标签页是否存在及休眠状态
-      try {
-        const tab = await chrome.tabs.get(this.currentTabId);
-        
-        // 检测是否被休眠（discarded）
-        if (tab.discarded) {
-          this.logger.warn('标签页已被休眠，正在重新加载...');
-          // 重新加载标签页
-          await chrome.tabs.reload(this.currentTabId);
-          await this.waitForTabLoad();
-          this.logger.info('标签页已从休眠中恢复');
-        } else if (tab.status !== 'complete') {
-          this.logger.info('等待页面加载...');
-          await this.waitForTabLoad();
-        }
-      } catch (e) {
-        this.logger.warn('获取标签页状态失败:', e.message);
-        // 尝试恢复标签页
-        await this.recoverTab();
-        return;
-      }
+      // 每次检查创建新标签页（避免休眠问题）
+      this.logger.info('创建临时检查标签页...');
+      const tab = await chrome.tabs.create({
+        url: this.settings.targetUrl,
+        active: false
+      });
+      checkTabId = tab.id;
       
-      // 唤醒标签页（防止休眠）
-      try {
-        // 通过更新标签页来确保它保持活跃
-        await chrome.tabs.update(this.currentTabId, { active: false });
-      } catch (e) {
-        // 忽略错误，可能标签页已经在前台
-      }
+      // 等待页面加载完成
+      await this.waitForTabLoad(checkTabId, 30000);
       
       // 额外等待动态内容
       await Utils.sleep(2000);
@@ -969,12 +952,22 @@ class SMZDMMonitor {
       
       // 执行内容脚本
       this.logger.info('正在提取页面内容...');
-      const results = await this.executeContentScript();
+      const results = await this.executeContentScript(checkTabId);
       this.logger.info(`内容提取完成: ${results.items?.length || 0} 条, 验证码: ${results.hasCaptcha}`);
+      
+      // 关闭临时标签页
+      if (checkTabId) {
+        try {
+          await chrome.tabs.remove(checkTabId);
+          this.logger.info('临时标签页已关闭');
+        } catch (e) {
+          // 忽略关闭错误
+        }
+        checkTabId = null;
+      }
       
       if (results.hasCaptcha) {
         await this.onCaptchaDetected();
-        // 验证码检测后仍然调度下次检查
         await this.scheduleNextCheck();
         return;
       }
@@ -983,17 +976,16 @@ class SMZDMMonitor {
         await this.processContent(results.items);
       }
       
-      // 刷新页面准备下次检查
-      this.logger.info('正在刷新页面...');
-      await this.refreshTab();
-      this.logger.info('页面刷新完成');
-      
     } catch (e) {
       this.logger.error('检查失败:', e.message);
       
-      // 尝试恢复
-      if (e.message.includes('No tab') || e.message.includes('Cannot access')) {
-        await this.recoverTab();
+      // 确保关闭临时标签页
+      if (checkTabId) {
+        try {
+          await chrome.tabs.remove(checkTabId);
+        } catch (err) {
+          // 忽略
+        }
       }
     }
     
@@ -1001,12 +993,13 @@ class SMZDMMonitor {
     await this.scheduleNextCheck();
   }
 
-  async waitForTabLoad(timeout = 30000) {
-    if (!this.currentTabId) return;
+  async waitForTabLoad(tabId = null, timeout = 30000) {
+    const targetTabId = tabId || this.currentTabId;
+    if (!targetTabId) return;
     
     return new Promise((resolve) => {
-      const listener = (tabId, info) => {
-        if (tabId === this.currentTabId && info.status === 'complete') {
+      const listener = (tid, info) => {
+        if (tid === targetTabId && info.status === 'complete') {
           chrome.tabs.onUpdated.removeListener(listener);
           resolve();
         }
@@ -1040,7 +1033,7 @@ class SMZDMMonitor {
       // 如果页面还在加载，等待加载完成
       if (tab.status !== 'complete') {
         this.logger.info('页面正在加载，等待完成...');
-        await this.waitForTabLoad(20000);
+        await this.waitForTabLoad(targetTabId, 20000);
       }
     } catch (e) {
       this.logger.error('标签页检查失败:', e.message);

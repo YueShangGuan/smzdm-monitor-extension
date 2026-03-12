@@ -3,7 +3,7 @@
 
 class PopupController {
   constructor() {
-    this.version = '1.22.6';
+    this.version = '1.22.8';
     this.settings = {};
     this.stats = {};
     this.updateInterval = null;

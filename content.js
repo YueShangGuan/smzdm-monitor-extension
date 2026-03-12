@@ -6,7 +6,7 @@
 
   // ==================== 配置 ====================
   const CONFIG = {
-    VERSION: '1.22.6',
+    VERSION: '1.22.8',
     CHECK_INTERVAL: 30000,  // 改为 30 秒检测一次
     CAPTCHA_SELECTORS: [
       '.geetest',
